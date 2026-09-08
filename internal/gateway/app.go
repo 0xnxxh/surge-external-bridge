@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	M "github.com/ssfun/surge-external-bridge/internal/mihomo"
+	"github.com/ssfun/surge-external-bridge/internal/update"
 	"net"
 	"net/url"
 	"os"
@@ -58,7 +59,7 @@ func New(dataDir string) (*App, error) {
 	for _, notice := range store.Notices() {
 		application.addEvent("warn", notice)
 	}
-	if err := application.reconcileProviderUploads(config); err != nil {
+	if err := application.reconcileProviderUploadsUnlessUpdating(config); err != nil {
 		application.addEvent("warn", "Provider 上传目录对账失败，将在下次启动重试: "+err.Error())
 	}
 	manager, err := M.NewManager(M.ManagerOptions{
@@ -1007,4 +1008,12 @@ func (a *App) publicationGuard() (lock func(), unlock func()) {
 			a.publicationMu.Unlock()
 		}
 	}
+}
+
+// A trial version must not delete uploads referenced by a rollback configuration.
+func (a *App) reconcileProviderUploadsUnlessUpdating(config Config) error {
+	if update.Busy(a.store.Dir()) {
+		return nil
+	}
+	return a.reconcileProviderUploads(config)
 }

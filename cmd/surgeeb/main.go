@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +18,7 @@ import (
 	"github.com/ssfun/surge-external-bridge/internal/management"
 	core "github.com/ssfun/surge-external-bridge/internal/mihomo"
 	serviceManager "github.com/ssfun/surge-external-bridge/internal/service"
+	"github.com/ssfun/surge-external-bridge/internal/update"
 )
 
 func main() {
@@ -34,6 +38,19 @@ func run(args []string) error {
 	case "version", "--version", "-v":
 		fmt.Printf("SurgeEB %s (Embedded Mihomo %s)\n", gateway.Version, core.CoreVersion)
 		return nil
+	case "__update-protocol":
+		fmt.Println("1")
+		return nil
+	case "update":
+		return updateCommand(args[1:])
+	case "__update-worker":
+		flags := flag.NewFlagSet("update-worker", flag.ContinueOnError)
+		dir := flags.String("data-dir", defaultDataDir(), "data directory")
+		id := flags.String("id", "", "update transaction identifier")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		return update.WorkerFor(*dir, *id)
 	case "service":
 		return serviceCommand(args[1:])
 	case "help", "--help", "-h":
@@ -54,6 +71,34 @@ func serve(args []string) error {
 	// private umask before any product or Mihomo state can be created, including
 	// interactive runs outside the service definitions that already use 0077.
 	syscall.Umask(0o077)
+	absolute, err := filepath.Abs(*dataDir)
+	if err != nil {
+		return err
+	}
+	*dataDir = absolute
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+		return err
+	}
+	if err := update.StartupAllowed(*dataDir); err != nil {
+		return err
+	}
+	instanceLock, err := update.LockInstance(*dataDir)
+	if err != nil {
+		return err
+	}
+	defer update.UnlockInstance(instanceLock)
+	if err := update.StartupAllowed(*dataDir); err != nil {
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	executableLock, err := update.LockExecutable(executable, false)
+	if err != nil {
+		return err
+	}
+	defer update.UnlockInstance(executableLock)
 	application, err := gateway.New(*dataDir)
 	if err != nil {
 		return err
@@ -63,11 +108,26 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	instanceBytes := make([]byte, 16)
+	if _, err := rand.Read(instanceBytes); err != nil {
+		return err
+	}
+	instanceID := hex.EncodeToString(instanceBytes)
+	config := application.Config()
+	updater, err := update.NewManager(*dataDir, gateway.Version, update.Runtime{PID: os.Getpid(), InstanceID: instanceID, HTTPBind: config.HTTPBind, PolicyHost: config.PolicyHost})
+	if err != nil {
+		return err
+	}
+	updater.RuntimeInfo = func() update.Runtime {
+		c := application.Config()
+		return update.Runtime{PID: os.Getpid(), InstanceID: instanceID, HTTPBind: c.HTTPBind, PolicyHost: c.PolicyHost}
+	}
+	server.SetUpdater(updater, instanceID)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	update.StartBackground(ctx, updater)
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
-	config := application.Config()
 	fmt.Printf("Surge External Bridge %s · Embedded Mihomo %s\n", gateway.Version, core.CoreVersion)
 	fmt.Printf("configuration console: http://%s\n", config.HTTPBind)
 	select {
@@ -152,5 +212,44 @@ Usage:
   SurgeEB service status
   SurgeEB service install [--data-dir PATH]
   SurgeEB service start|stop|restart
-  SurgeEB service uninstall`)
+  SurgeEB service uninstall
+  SurgeEB update check|install|status|recover [--data-dir PATH]`)
+}
+
+func updateCommand(args []string) error {
+	if len(args) == 0 {
+		return errors.New("update requires check, install, status, or recover")
+	}
+	flags := flag.NewFlagSet("update", flag.ContinueOnError)
+	dir := flags.String("data-dir", defaultDataDir(), "configuration and state directory")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	if args[0] == "recover" {
+		return update.Worker(*dir, true)
+	}
+	manager, err := update.NewManager(*dir, gateway.Version, update.Runtime{})
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "status":
+	case "check", "install":
+		if err = manager.Check(context.Background()); err != nil {
+			return err
+		}
+		if args[0] == "install" {
+			status := manager.Status()
+			if status.Latest == nil {
+				fmt.Println("已是最新稳定版本")
+				return nil
+			}
+			if err = manager.StartInstall(context.Background(), status.Latest.Tag, false); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("unknown update command %q", args[0])
+	}
+	return json.NewEncoder(os.Stdout).Encode(manager.Status())
 }

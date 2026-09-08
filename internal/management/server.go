@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ssfun/surge-external-bridge/internal/update"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -29,6 +31,9 @@ func coreProviderKey(id string) (string, error) { return M.ProviderKey(id) }
 const maxRequestBody = 8 << 20
 
 type Server struct {
+	updateMu     sync.RWMutex
+	updater      *update.Manager
+	instanceID   string
 	app          *gateway.App
 	server       *http.Server
 	core         *controllerFacade
@@ -48,6 +53,10 @@ func New(application *gateway.App) (*Server, error) {
 	server := &Server{app: application, core: newControllerFacade(controllerSocket, controllerSecret), fatal: make(chan error, 1), shutdown: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.health)
+	mux.HandleFunc("GET /api/update", server.authorize(server.updateStatus))
+	mux.HandleFunc("POST /api/update/check", server.authorize(server.updateCheck))
+	mux.HandleFunc("POST /api/update/install", server.authorize(server.updateInstall))
+	mux.HandleFunc("PUT /api/update/settings", server.authorize(server.updatePreferences))
 	mux.HandleFunc("GET /proxies", server.proxies)
 	mux.HandleFunc("GET /api/session", server.sessionStatus)
 	mux.HandleFunc("POST /api/session", server.sessionLogin)
@@ -97,7 +106,7 @@ func New(application *gateway.App) (*Server, error) {
 	}
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 	server.server = &http.Server{
-		Addr: application.Config().HTTPBind, Handler: securityHeaders(server.trustedHost(mux)),
+		Addr: application.Config().HTTPBind, Handler: securityHeaders(server.trustedHost(server.updateGate(mux))),
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20,
 	}
@@ -141,8 +150,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	status := s.app.Status()
+	transaction, _ := update.ReadJournal(s.app.DataDir())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": status.State == "running", "version": gateway.Version,
+		"pid": os.Getpid(), "instance_id": s.instanceID, "update_id": transaction.ID,
 		"core_version": status.CoreVersion, "state": status.State,
 		"projection_count": status.ProjectionCount, "has_error": status.LastError != "",
 	})

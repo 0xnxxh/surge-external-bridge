@@ -233,7 +233,11 @@ jobs:
             echo "Release $tag already exists; published assets are immutable" >&2
             exit 1
           fi
-          gh release create "$tag" "${files[@]}" \
+          release_flags=()
+          if [[ "$tag" == *-* ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$tag" "${files[@]}" "${release_flags[@]}" \
             --title "SurgeEB $tag" \
             --generate-notes \
             --notes "Embedded Mihomo Core: ${{ needs.verify.outputs.core_version }}"

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { onBeforeRouteLeave } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
+import UpdateCard from '@/components/UpdateCard.vue'
 import { api } from '@/api.js'
 import { useDataStore } from '@/stores/data.js'
 import { useUIStore } from '@/stores/ui.js'
@@ -190,6 +191,7 @@ async function serviceAction(install) {
           </div>
           <div class="settings-boundary"><b>SurgeEB 不会接管系统网络</b><span>系统代理、TUN 和 DNS 等功能仍由 Surge 管理。</span></div>
         </div>
+        <UpdateCard :current-version="settings.version" />
         <div class="card settings-card" data-testid="settings-service">
           <div class="settings-card-head"><div><h3>开机自动启动</h3><p>让 SurgeEB 随系统或用户会话自动运行；当前程序无需重复启动。</p></div><span class="pill" :class="service?.installed && !service?.repair_needed && !serviceDetectionFailed ? 'ok' : 'warn'">{{ serviceDetectionFailed ? '检测失败' : (service?.repair_needed ? '需要修复' : (service?.installed ? '已开启' : '未开启')) }}</span></div>
           <dl class="kv settings-service-facts"><dt>运行平台</dt><dd>{{ service?.platform || '—' }}</dd><dt>自动启动</dt><dd>{{ serviceDetectionFailed ? '检测失败' : (service?.repair_needed ? '旧定义需要迁移' : (service?.installed ? '已开启' : '未开启')) }}</dd></dl>

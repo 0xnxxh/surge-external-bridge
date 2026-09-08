@@ -135,3 +135,34 @@ jobs:
             LICENSES/mihomo.txt
           if-no-files-found: error
           retention-days: 14
+
+  update-runtime:
+    name: Update and rollback (${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: webassets
+          path: internal/webassets/static
+      - name: Build two versions and test real process recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/update-test"
+          # Test-only versions built from the same checkout to exercise upgrade and rollback.
+          # These temporary binaries are not published and do not set the release version.
+          for version in 1.0.0 1.0.1; do
+            CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/ssfun/surge-external-bridge/internal/gateway.Version=$version -X github.com/ssfun/surge-external-bridge/internal/gateway.BuildVersionMarker=surgeeb-version:$version" -o "$RUNNER_TEMP/update-test/SurgeEB-$version" ./cmd/surgeeb
+          done
+          SURGEEB_UPDATE_TEST_OLD="$RUNNER_TEMP/update-test/SurgeEB-1.0.0" SURGEEB_UPDATE_TEST_NEW="$RUNNER_TEMP/update-test/SurgeEB-1.0.1" go test ./internal/update -run TestRealProcessUpdateAndRollback -count=1 -v
