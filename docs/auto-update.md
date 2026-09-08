@@ -22,6 +22,10 @@
 
 CLI `install` 对已安装服务提交独立后台任务，使用 `status` 查看最终结果。无服务时需要先停止实例，再由 CLI 原子安装；随后手动启动，状态为 `installed`，不声称已经通过运行就绪验证。
 
+实例运行时，CLI 校验数据目录中的进程身份与 `/health` 一致，再通过该实例的管理接口检查并提交更新，复用配置写入冻结和手动进程接管。实例身份或监听地址改变时拒绝提交，不回退为离线安装。离线安装全程持有实例锁，防止下载期间启动的进程与更新并发。
+
+`update status` 在实例运行时查询管理接口，显示实时下载进度、校验失败原因和运行版本；实例停止时读取本地事务记录。运行实例无法连接或身份不匹配时返回错误，不用旧事务记录冒充当前状态。
+
 ## 平台与安装目标
 
 | 场景 | 行为 |
@@ -51,6 +55,8 @@ macOS 不使用 sudo。Linux 用户服务要求用户 systemd manager 可用。�
 6. worker 中断后保留事务。`update recover` 可恢复未完成事务；如果二进制/服务定义后来被其他操作修改，则拒绝覆盖并保留错误。不会把恢复失败标成成功。
 
 更新偏好存放在数据目录的 `update-settings.json`，事务在 `update-transaction.json`；均为 0600。旧程序保留在目标旁的 `.previous`，配置备份保留在私有 `update-backup/gateway.json`。这些文件可能包含配置秘密，应按原数据目录保护。
+
+`update-instance.json` 保存本次启动的 PID 与随机实例标识（0600），仅在实例运行锁被占用时用于 CLI 身份核对。回滚和中断恢复也会获取目标程序的独占锁；其他实例仍在使用该程序时保留恢复记录，停止这些实例后可再次执行 `update recover`。
 
 macOS worker 日志位于 `update.log`；Linux 使用对应 `surgeeb-update-<id>` 的 journal。若目标程序无法启动，可使用保留的 `update-worker update recover --data-dir ...` 执行恢复。
 

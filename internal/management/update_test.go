@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"github.com/ssfun/surge-external-bridge/internal/update"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestUpdateAPIAuthenticationOriginAndConfirmation(t *testing.T) {
@@ -67,5 +69,76 @@ func TestUpdateFreezesMutationsButKeepsStatusReadable(t *testing.T) {
 		if resp.StatusCode != tc.want {
 			t.Fatalf("%s %s = %d", tc.method, tc.path, resp.StatusCode)
 		}
+	}
+}
+
+func TestUpdateRejectsStaleCLIInstanceIdentity(t *testing.T) {
+	app, server, address := testManagementServer(t, "")
+	defer app.Close()
+	manager, err := update.NewManager(app.DataDir(), "1.0.0", update.Runtime{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetUpdater(manager, "replacement-instance")
+	for _, path := range []string{"/api/update", "/api/update/check", "/api/update/install"} {
+		method := http.MethodPost
+		if path == "/api/update" {
+			method = http.MethodGet
+		}
+		req, _ := http.NewRequest(method, address+path, bytes.NewBufferString(`{"version":"v1.1.0"}`))
+		req.Header.Set("X-SurgeEB-Instance", "previous-instance")
+		req.Header.Set("X-SurgeEB-Confirm", "install-update")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("%s accepted stale CLI identity: %d", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestUpdatePreparationDrainsAdmittedManagementWrites(t *testing.T) {
+	app, server, _ := testManagementServer(t, "")
+	defer app.Close()
+	manager, err := update.NewManager(app.DataDir(), "1.0.0", update.Runtime{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetUpdater(manager, "live-instance")
+	entered, release, completed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	handler := server.updateGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+	}))
+	go func() {
+		defer close(completed)
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("PUT", "/api/settings", nil))
+	}()
+	<-entered
+	prepared := make(chan error, 1)
+	go func() {
+		prepared <- manager.Freeze(func() error {
+			return os.WriteFile(filepath.Join(app.DataDir(), "update-transaction.json"), []byte(`{"phase":"prepared"}`), 0o600)
+		})
+	}()
+	select {
+	case err := <-prepared:
+		close(release)
+		<-completed
+		t.Fatalf("prepared before existing write completed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-completed
+	if err := <-prepared; err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	recorder := httptest.NewRecorder()
+	server.updateGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })).ServeHTTP(recorder, httptest.NewRequest("PUT", "/api/settings", nil))
+	if called || recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("write admitted after preparation: called=%v status=%d", called, recorder.Code)
 	}
 }

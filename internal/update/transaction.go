@@ -107,6 +107,9 @@ func runTransaction(j *Journal, ops transactionOps) error {
 		releaseExecutable()
 		return rollback(j, ops, err)
 	}
+	// The lock belongs to the old inode. Rollback must acquire a fresh lock on
+	// the installed candidate, which other instances may have started using.
+	releaseExecutable()
 	if err = syncDir(filepath.Dir(j.Target)); err != nil {
 		return rollback(j, ops, err)
 	}
@@ -152,6 +155,11 @@ func rollback(j *Journal, ops transactionOps, cause error) error {
 	if err := ops.stop(); err != nil {
 		return fail(err)
 	}
+	executableLock, err := LockExecutable(j.Target, true)
+	if err != nil {
+		return fail(err)
+	}
+	defer unlock(executableLock)
 	if j.PreviousDigest != "" {
 		previous, err := fileDigest(j.Target + ".previous")
 		if err != nil {

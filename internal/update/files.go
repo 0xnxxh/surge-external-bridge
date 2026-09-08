@@ -122,6 +122,8 @@ func regularFile(path string) error {
 }
 
 // File locks are released by the kernel after a crash; lock files are never unlinked.
+var errLocked = errors.New("实例或更新任务正在运行")
+
 func lock(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -129,7 +131,10 @@ func lock(path string) (*os.File, error) {
 	}
 	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("实例或更新任务正在运行")
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errLocked
+		}
+		return nil, err
 	}
 	return f, nil
 }

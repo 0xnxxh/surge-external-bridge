@@ -238,6 +238,16 @@ func (m *Manager) install(ctx context.Context, r Release) error {
 	if Busy(m.dir) {
 		return errors.New("已有更新等待完成或恢复")
 	}
+	// A CLI manager has no in-process write gate or runtime identity. It may
+	// prepare directly only while the instance is stopped, and must keep it
+	// stopped through preparation and worker dispatch (or offline installation).
+	if m.runtimeNow().PID == 0 {
+		instance, err := LockInstance(m.dir)
+		if err != nil {
+			return fmt.Errorf("实例已启动，请重新执行 update install 通过运行实例更新：%w", err)
+		}
+		defer UnlockInstance(instance)
+	}
 	target, err := service.ResolveUpdateTarget(m.dir)
 	if err != nil {
 		return err
@@ -371,13 +381,6 @@ func (m *Manager) install(ctx context.Context, r Release) error {
 		keep = true
 		return nil
 	}
-	instance, err := LockInstance(m.dir)
-	if err != nil {
-		j.Error = "实例正在运行，请先停止再更新"
-		_ = j.save("failed")
-		return errors.New(j.Error)
-	}
-	defer UnlockInstance(instance)
 	err = runTransaction(&j, transactionOps{stop: func() error { return nil }})
 	return err
 }

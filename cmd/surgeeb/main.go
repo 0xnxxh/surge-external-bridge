@@ -123,6 +123,9 @@ func serve(args []string) error {
 		return update.Runtime{PID: os.Getpid(), InstanceID: instanceID, HTTPBind: c.HTTPBind, PolicyHost: c.PolicyHost}
 	}
 	server.SetUpdater(updater, instanceID)
+	if err := update.RegisterInstance(*dataDir, os.Getpid(), instanceID); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	update.StartBackground(ctx, updater)
@@ -227,6 +230,19 @@ func updateCommand(args []string) error {
 	}
 	if args[0] == "recover" {
 		return update.Worker(*dir, true)
+	}
+	if args[0] == "install" || args[0] == "status" {
+		command := update.InstallRunning
+		if args[0] == "status" {
+			command = update.StatusRunning
+		}
+		result, running, err := command(context.Background(), *dir)
+		if err != nil {
+			return err
+		}
+		if running {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
 	}
 	manager, err := update.NewManager(*dir, gateway.Version, update.Runtime{})
 	if err != nil {

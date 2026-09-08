@@ -26,15 +26,19 @@ func (s *Server) updateGate(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-func (s *Server) hasUpdater(w http.ResponseWriter) bool {
+func (s *Server) hasUpdater(w http.ResponseWriter, r *http.Request) bool {
 	if s.updater == nil {
 		writeError(w, http.StatusServiceUnavailable, "当前运行方式未启用更新管理")
+		return false
+	}
+	if expected := r.Header.Get("X-SurgeEB-Instance"); expected != "" && expected != s.instanceID {
+		writeError(w, http.StatusConflict, "运行实例已改变，请重新执行更新命令")
 		return false
 	}
 	return true
 }
 func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request) {
-	if !s.hasUpdater(w) {
+	if !s.hasUpdater(w, r) {
 		return
 	}
 	status := s.updater.Status()
@@ -55,7 +59,7 @@ type textError string
 
 func (e textError) Error() string { return string(e) }
 func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
-	if !s.hasUpdater(w) {
+	if !s.hasUpdater(w, r) {
 		return
 	}
 	if !sameOrigin(r) {
@@ -69,7 +73,7 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 	s.updateStatus(w, r)
 }
 func (s *Server) updateInstall(w http.ResponseWriter, r *http.Request) {
-	if !s.hasUpdater(w) {
+	if !s.hasUpdater(w, r) {
 		return
 	}
 	if !sameOrigin(r) || r.Header.Get("X-SurgeEB-Confirm") != "install-update" {
@@ -95,7 +99,7 @@ func (s *Server) updateInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted", "version": body.Version})
 }
 func (s *Server) updatePreferences(w http.ResponseWriter, r *http.Request) {
-	if !s.hasUpdater(w) {
+	if !s.hasUpdater(w, r) {
 		return
 	}
 	if !sameOrigin(r) {

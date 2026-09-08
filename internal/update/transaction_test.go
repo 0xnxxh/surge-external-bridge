@@ -97,7 +97,7 @@ func TestUpdateRefusesExecutableUsedByAnotherInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer UnlockInstance(other)
+	defer func() { UnlockInstance(other) }()
 	digest, _ := fileDigest(staged)
 	j := Journal{ID: "test", DataDir: dir, Target: target, Staged: staged, Digest: digest}
 	if err = runTransaction(&j, transactionOps{stop: func() error { return nil }}); err == nil {
@@ -149,5 +149,47 @@ func TestWorkerCannotExecuteAnotherTransaction(t *testing.T) {
 	got, err := ReadJournal(dir)
 	if err != nil || got.ID != j.ID || got.Phase != j.Phase {
 		t.Fatalf("transaction changed: %+v %v", got, err)
+	}
+}
+
+func TestRecoveryRespectsOtherInstanceExecutableLock(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "SurgeEB")
+	backup := filepath.Join(dir, "update-backup")
+	if err := os.MkdirAll(backup, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for path, value := range map[string]string{target: "new binary", target + ".previous": "old binary", filepath.Join(dir, "gateway.json"): "new config", filepath.Join(backup, "gateway.json"): "old config"} {
+		if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest, _ := fileDigest(target)
+	previous, _ := fileDigest(target + ".previous")
+	j := Journal{ID: "shared", Phase: "installing", DataDir: dir, Target: target, Staged: filepath.Join(dir, "candidate"), Digest: digest, PreviousDigest: previous}
+	if err := writeJSON(j.path(), j); err != nil {
+		t.Fatal(err)
+	}
+	other, err := LockExecutable(target, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { UnlockInstance(other) }()
+	if err := Worker(dir, true); err == nil {
+		t.Fatal("recovered over a shared executable")
+	}
+	got, _ := os.ReadFile(target)
+	config, _ := os.ReadFile(filepath.Join(dir, "gateway.json"))
+	journal, _ := ReadJournal(dir)
+	if string(got) != "new binary" || string(config) != "new config" || journal.Phase != "recovery_failed" {
+		t.Fatalf("modified another instance's binary: target=%s config=%s phase=%s", got, config, journal.Phase)
+	}
+	UnlockInstance(other)
+	other = nil
+	_ = Worker(dir, true)
+	got, _ = os.ReadFile(target)
+	journal, _ = ReadJournal(dir)
+	if string(got) != "old binary" || journal.Phase != "rolled_back" {
+		t.Fatalf("recovery after lock release: target=%s phase=%s", got, journal.Phase)
 	}
 }
