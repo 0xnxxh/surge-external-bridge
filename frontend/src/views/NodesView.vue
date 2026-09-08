@@ -172,13 +172,13 @@ function runAction(node, action) {
 .node-card-list .node-card-title{grid-area:identity;gap:8px;padding-right:0}
 .node-card-list .node-status{position:static;grid-area:status;align-self:center;justify-self:end}
 .node-card-list .node-card-title h3{font-size:14px}
-.node-card-list .node-card-context{grid-area:context;margin:0;gap:8px;min-width:0}
+.node-card-list .node-card-context{grid-area:context;margin:0;gap:8px;min-width:0;flex-wrap:wrap}
 .node-card-list .node-card-metrics{grid-area:metrics;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0}
 .node-card-list .node-card-metrics>div{display:grid;gap:3px;border:0;border-left:1px solid var(--line);border-radius:0;background:none;padding:0 0 0 16px}
 .node-card-list .node-card-metrics span{white-space:nowrap}
 .node-card-list .node-card-metrics b{font-size:14px;white-space:nowrap}
 .node-card-list .node-card-metrics small{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.node-card-list .node-capabilities{flex:0 0 auto;flex-wrap:nowrap;margin:0;gap:4px}
+.node-card-list .node-capabilities{flex:0 1 auto;min-width:0;flex-wrap:wrap;margin:0;gap:4px}
 .node-card-list .node-capabilities span{padding:1px 6px;font-size:9px}
 .node-card-list .node-card-actions{grid-area:actions;margin:0;padding:0;justify-content:flex-end}
 .node-card-list .node-chain,.node-card-list .node-diagnostic,.node-card-list .node-error{grid-column:1/-1}
@@ -193,8 +193,6 @@ function runAction(node, action) {
 @media(max-width:800px){
   .node-card-list .node-card{grid-template-columns:minmax(0,1fr) max-content;grid-template-areas:"identity status" "context context" "metrics metrics" "actions actions";gap:12px;align-items:center;padding:14px}
   .node-card-list .node-card-metrics{gap:16px}
-  .node-card-list .node-card-context{flex-wrap:wrap}
-  .node-card-list .node-capabilities{flex-wrap:wrap}
   .node-card-list .node-card-actions{gap:7px}
 }
 </style>
