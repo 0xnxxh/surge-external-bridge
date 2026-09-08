@@ -19,6 +19,7 @@ import (
 
 const maxControllerStreams = 8
 const controllerStreamWriteTimeout = 5 * time.Second
+const maxControllerJSONBytes = 16 << 20
 
 type controllerFacade struct {
 	proxy   *httputil.ReverseProxy
@@ -106,6 +107,9 @@ func (s *Server) serveSanitizedJSONWebSocket(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer upstream.CloseNow()
+	// Connection snapshots grow with active connections; the library's 32 KiB
+	// default disconnects healthy streams. Match the HTTP JSON response limit.
+	upstream.SetReadLimit(maxControllerJSONBytes)
 	for {
 		messageType, payload, err := upstream.Read(r.Context())
 		if err != nil {
@@ -154,8 +158,8 @@ func (s *Server) serveControllerJSON(w http.ResponseWriter, r *http.Request, ups
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, 16<<20+1))
-	if err != nil || len(data) > 16<<20 {
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxControllerJSONBytes+1))
+	if err != nil || len(data) > maxControllerJSONBytes {
 		writeError(w, http.StatusBadGateway, "Mihomo response exceeded the product limit")
 		return
 	}
