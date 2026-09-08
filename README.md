@@ -176,6 +176,23 @@ Surge External Bridge 采用全新数据目录和配置，不读取或迁移旧�
 
 macOS 使用 `com.sfun.surgeeb` LaunchAgent，并把服务副本安装到当前用户的 `~/Library/Application Support/SurgeEB/bin/SurgeEB`，全程不需要也不允许 `sudo`。Linux 普通用户安装到 `~/.config/systemd/user/surgeeb.service`，由 `systemd --user` 管理并继续引用当前二进制；root 会把二进制原子复制到 `/usr/local/bin/SurgeEB`，把服务安装到 `/etc/systemd/system/surgeeb.service`，并由系统级 systemd 管理。配置台注册服务时不会立即启动第二个进程；Linux CLI `service install` 会启用并重启服务，使重新安装的二进制和 unit 立即生效。`service stop` 会等待进程退出，`service restart` 会等待新进程进入运行状态。`service uninstall` 只卸载服务定义，不删除二进制。两种平台都使用 `0077` umask，不安装或管理外部 Mihomo，也不修改系统代理或网络栈。
 
+## 自动更新
+
+设置页的“软件更新”支持从本项目 GitHub Releases 检查更新、一键更新并重启，以及可选的自动安装时段。默认每 24 小时检查稳定版本，自动安装默认关闭；更新会中断现有代理连接。
+
+macOS 自启模式更新 `~/Library/Application Support/SurgeEB/bin/SurgeEB`，Linux 更新 systemd 服务实际引用的程序。若已注册自启但当前仍从下载目录运行，更新后由系统服务接管。服务的数据目录必须匹配当前实例；不会选择其他实例的服务，也不会自动提权。
+
+```bash
+./SurgeEB update check
+./SurgeEB update install
+./SurgeEB update status
+./SurgeEB update recover
+```
+
+以上命令支持 `--data-dir PATH`。无服务时先停止程序，再通过 CLI 安装并手动启动。首次从不支持自动更新的旧版升级，需要手动安装新 Release 并重新安装自启服务。
+
+下载验证 SHA256、产品版本与目标平台后原子替换；服务启动失败会尝试恢复旧程序和配置。后台任务提交成功不等于更新完成，最终状态见设置页或 `update status`。完整平台边界、恢复方式与验证范围见 [自动更新文档](docs/auto-update.md)。
+
 ## 本地构建与验证
 
 源码工具链由 [`.go-version`](.go-version) 固定，Mihomo 精确版本以 [`go.mod`](go.mod) 为准，前端是内嵌静态资源。
