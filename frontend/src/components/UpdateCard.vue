@@ -75,8 +75,10 @@ function changed() { saved.value = false; if (!preferences.auto_check) preferenc
 </script>
 
 <template>
- <div class="card settings-card" data-testid="settings-update">
+ <div class="card settings-card settings-update" data-testid="settings-update">
   <div class="settings-card-head"><div><h3>软件更新</h3><p>从项目 GitHub Releases 更新 SurgeEB、内嵌 Mihomo 与配置台。</p></div><span class="pill" role="status">{{ label }}</span></div>
+  <div class="update-layout">
+   <div class="update-details">
   <dl class="kv"><dt>当前版本</dt><dd>{{ status?.current_version || props.currentVersion || '—' }}</dd><dt v-if="status?.latest">可用版本</dt><dd v-if="status?.latest">{{ status.latest.tag_name }}</dd><dt v-if="status?.target">更新位置</dt><dd v-if="status?.target" class="update-path">{{ status.target }}</dd><dt>运行方式</dt><dd>{{ status?.service ? '系统自启服务' : '手动运行' }}</dd></dl>
   <p v-if="status?.service" class="settings-note">更新后由系统服务运行；已注册自启的手动进程会在释放端口后交给服务接管。</p>
   <p v-if="status?.install_reason" class="settings-note">{{ status.install_reason }}</p>
@@ -84,14 +86,24 @@ function changed() { saved.value = false; if (!preferences.auto_check) preferenc
   <p v-if="reconnecting" class="settings-note">服务可能正在重启，正在重新连接并核对结果；连接中断不代表更新成功。</p>
   <div v-if="status?.latest" class="update-release"><a :href="status.latest.html_url" target="_blank" rel="noopener noreferrer">查看 Release</a><details v-if="status.latest.body"><summary>发布说明</summary><pre>{{ status.latest.body }}</pre></details></div>
   <div class="actions"><button class="button ghost" type="button" :disabled="Boolean(action) || active" @click="check">{{ action === 'check' ? '检查中…' : '检查更新' }}</button><button class="button" type="button" :disabled="!canInstall" @click="install">更新并重启</button></div>
+   </div>
   <fieldset :disabled="!status || Boolean(action) || active" class="update-preferences">
    <label><input v-model="preferences.auto_check" type="checkbox" @change="changed"> 自动检查稳定版本（每 24 小时）</label>
    <label><input v-model="preferences.auto_install" type="checkbox" :disabled="!preferences.auto_check || !status?.service" @change="changed"> 自动安装并重启</label>
    <label v-if="preferences.auto_install">安装时段（运行主机本地时间）<select v-model="preferences.install_hour" @change="changed"><option v-for="hour in 24" :key="hour - 1" :value="hour - 1">{{ String(hour - 1).padStart(2, '0') }}:00–{{ String(hour - 1).padStart(2, '0') }}:59</option></select></label>
    <button class="button ghost" type="button" :disabled="!dirty" @click="save">保存更新设置</button><span v-if="saved" role="status">更新设置已保存</span>
   </fieldset>
+  </div>
  </div>
 </template>
 <style scoped>
-.update-path{overflow-wrap:anywhere}.update-preferences{display:grid;gap:12px;border:0;padding:16px 0 0;margin:12px 0 0;border-top:1px solid var(--border,#e4e4e7)}.update-preferences label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.update-preferences button{justify-self:start}.update-release{margin:12px 0}.update-release pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font:inherit}.update-release summary{cursor:pointer;margin-top:8px}
+.settings-update{grid-column:1/-1;min-width:0}
+.update-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:24px}
+.update-details{min-width:0}.update-details>.kv{margin-top:0;grid-template-columns:max-content minmax(0,1fr)}
+.update-path{overflow-wrap:anywhere}
+.update-preferences{display:grid;align-content:start;gap:12px;min-width:0;border:0;padding:0 0 0 24px;margin:0;border-left:1px solid var(--line)}
+.update-preferences label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.update-preferences button{justify-self:start}
+.update-release{margin:12px 0}.update-release pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font:inherit}.update-release summary{cursor:pointer;margin-top:8px}
+@media(max-width:980px){.update-layout{grid-template-columns:1fr;gap:16px}.update-preferences{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}}
+@media(max-width:620px){.settings-update>.settings-card-head{flex-wrap:wrap}}
 </style>

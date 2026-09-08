@@ -21,6 +21,8 @@ const provider = ref('')
 const type = ref('')
 const alive = ref('')
 const menuOpen = ref('')
+const layoutKey = 'surgeeb-node-layout'
+const layout = ref(localStorage.getItem(layoutKey) === 'list' ? 'list' : 'grid')
 const results = reactive({})
 const errors = reactive({})
 const busy = reactive(new Set())
@@ -42,6 +44,11 @@ const connectionStats = computed(() => {
 })
 
 function clearFilters() { name.value = ''; provider.value = ''; type.value = ''; alive.value = '' }
+function setLayout(value) {
+  layout.value = value
+  menuOpen.value = ''
+  localStorage.setItem(layoutKey, value)
+}
 function capabilityList(node) { return [node.udp && 'UDP', node.uot && 'UOT', node.xudp && 'XUDP', node.tfo && 'TFO', node.mptcp && 'MPTCP', node.smux && 'SMUX'].filter(Boolean) }
 function stats(node) { return connectionStats.value.get(node.id) || { count: 0, upload: 0, download: 0, chains: [] } }
 function previousDelays(node) { return (Array.isArray(node.history) ? node.history : []).slice(-4, -1).map((item) => latestHealth([item]).label).join(' / ') }
@@ -93,6 +100,10 @@ function runAction(node, action) {
       <span class="ok"><b>{{ aliveCount }}</b> 个可用</span>
       <span v-if="unavailableCount" class="bad"><b>{{ unavailableCount }}</b> 个需检查</span>
       <span><b>{{ activeConnectionCount }}</b> 个实时连接</span>
+      <div class="node-view-switch" role="group" aria-label="节点显示方式">
+        <button type="button" aria-label="网格卡片" :aria-pressed="layout === 'grid'" @click="setLayout('grid')"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="4" height="4" rx="1"/><rect x="10" y="2" width="4" height="4" rx="1"/><rect x="2" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/></svg>网格卡片</button>
+        <button type="button" aria-label="列表卡片" :aria-pressed="layout === 'list'" @click="setLayout('list')"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="4" rx="1"/><rect x="2" y="10" width="12" height="4" rx="1"/></svg>列表卡片</button>
+      </div>
     </div>
 
     <section class="node-filter-panel" aria-label="节点筛选">
@@ -105,21 +116,22 @@ function runAction(node, action) {
       <div class="node-filter-summary"><span>显示 {{ filtered.length }} / {{ nodes.length }} 个节点</span><button v-if="hasFilters" type="button" @click="clearFilters">清除筛选</button></div>
     </section>
 
-    <div v-if="filtered.length" class="node-card-grid">
+    <div v-if="filtered.length" class="node-card-grid" :class="{ 'node-card-list': layout === 'list' }">
       <article v-for="node in filtered" :key="node.id" class="node-card" :class="{ unavailable: !node.alive }" data-testid="node-card">
         <header class="node-card-header">
           <div class="node-card-identity">
-            <div class="node-card-title"><h3 :title="node.name">{{ node.name }}</h3><span class="pill" :class="node.alive ? 'ok' : 'warn'">{{ node.alive ? '可用' : '需检查' }}</span></div>
-            <div class="node-card-context"><span>{{ node.provider_name || '未知 Provider' }}</span><b>{{ String(node.type || '—').toUpperCase() }}</b></div>
+            <div class="node-card-title"><h3 :title="node.name">{{ node.name }}</h3></div>
+            <div class="node-card-context"><span>{{ node.provider_name || '未知 Provider' }}</span><b>{{ String(node.type || '—').toUpperCase() }}</b><div v-if="layout === 'list' && capabilityList(node).length" class="node-capabilities" aria-label="节点能力"><span v-for="item in capabilityList(node)" :key="item">{{ item }}</span></div></div>
           </div>
         </header>
+        <span class="pill node-status" :class="node.alive ? 'ok' : 'warn'">{{ node.alive ? '可用' : '需检查' }}</span>
 
         <div class="node-card-metrics">
-          <div><span>最近测速</span><b>{{ latestHealth(node.history).label }}</b><small v-if="latestHealth(node.history).time">{{ latestHealth(node.history).time }}</small><small v-if="previousDelays(node)">历史 {{ previousDelays(node) }}</small></div>
-          <div><span>实时连接</span><b>{{ stats(node).count }} 个</b><small v-if="stats(node).count">↑ {{ formatBytes(stats(node).upload) }} · ↓ {{ formatBytes(stats(node).download) }}</small><small v-else>暂无活跃连接</small></div>
+          <div :title="[latestHealth(node.history).time, previousDelays(node) && `历史 ${previousDelays(node)}`].filter(Boolean).join(' · ')"><span>最近测速</span><b>{{ latestHealth(node.history).label }}</b><small v-if="latestHealth(node.history).time">{{ latestHealth(node.history).time }}</small><small v-if="previousDelays(node)">历史 {{ previousDelays(node) }}</small></div>
+          <div :title="stats(node).count ? `↑ ${formatBytes(stats(node).upload)} · ↓ ${formatBytes(stats(node).download)}` : '暂无活跃连接'"><span>实时连接</span><b>{{ stats(node).count }} 个</b><small v-if="stats(node).count">↑ {{ formatBytes(stats(node).upload) }} · ↓ {{ formatBytes(stats(node).download) }}</small><small v-else>暂无活跃连接</small></div>
         </div>
 
-        <div v-if="capabilityList(node).length" class="node-capabilities" aria-label="节点能力"><span v-for="item in capabilityList(node)" :key="item">{{ item }}</span></div>
+        <div v-if="layout !== 'list' && capabilityList(node).length" class="node-capabilities" aria-label="节点能力"><span v-for="item in capabilityList(node)" :key="item">{{ item }}</span></div>
         <div v-if="chainLabel(node)" class="node-chain"><span>代理链</span><code>{{ chainLabel(node) }}</code></div>
 
         <div v-if="results[node.id]" class="node-diagnostic" aria-live="polite">
@@ -145,3 +157,42 @@ function runAction(node, action) {
 
   <div v-else class="card empty-state"><div class="empty-state-icon">{{ providers.length ? '…' : '+' }}</div><b>{{ providers.length ? '暂时没有可投影节点' : '请先添加 Provider' }}</b><span>{{ providers.length ? '检查 Provider 是否已成功更新，以及投影名称筛选是否排除了全部节点。' : 'Provider 成功加载后，节点会自动出现在这里。' }}</span><div class="actions"><button class="button primary" type="button" @click="router.push({ name: 'providers' })">{{ providers.length ? '检查 Provider' : '添加 Provider' }}</button></div></div>
 </template>
+
+<style scoped>
+.node-view-switch{margin-left:auto;display:flex;gap:3px;padding:3px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+.node-view-switch button{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap}
+.node-view-switch button:hover{color:var(--text)}
+.node-view-switch button[aria-pressed="true"]{background:var(--panel2);border-color:#424b58;color:var(--accent)}
+.node-view-switch svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4}
+.node-card-title{padding-right:68px}
+.node-status{position:absolute;top:16px;right:16px;white-space:nowrap}
+.node-card-list{grid-template-columns:minmax(0,1fr);gap:10px}
+.node-card-list .node-card{display:grid;grid-template-columns:minmax(0,1.15fr) max-content minmax(180px,1fr) auto;grid-template-areas:"identity status metrics actions" "context status metrics actions";align-items:center;column-gap:18px;row-gap:6px;padding:12px 16px;background:var(--panel);box-shadow:none}
+.node-card-list .node-card-header,.node-card-list .node-card-identity{display:contents}
+.node-card-list .node-card-title{grid-area:identity;gap:8px;padding-right:0}
+.node-card-list .node-status{position:static;grid-area:status;align-self:center;justify-self:end}
+.node-card-list .node-card-title h3{font-size:14px}
+.node-card-list .node-card-context{grid-area:context;margin:0;gap:8px;min-width:0;flex-wrap:wrap}
+.node-card-list .node-card-metrics{grid-area:metrics;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0}
+.node-card-list .node-card-metrics>div{display:grid;gap:3px;border:0;border-left:1px solid var(--line);border-radius:0;background:none;padding:0 0 0 16px}
+.node-card-list .node-card-metrics span{white-space:nowrap}
+.node-card-list .node-card-metrics b{font-size:14px;white-space:nowrap}
+.node-card-list .node-card-metrics small{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.node-card-list .node-capabilities{flex:0 1 auto;min-width:0;flex-wrap:wrap;margin:0;gap:4px}
+.node-card-list .node-capabilities span{padding:1px 6px;font-size:9px}
+.node-card-list .node-card-actions{grid-area:actions;margin:0;padding:0;justify-content:flex-end}
+.node-card-list .node-chain,.node-card-list .node-diagnostic,.node-card-list .node-error{grid-column:1/-1}
+@media(max-width:1180px) and (min-width:621px){
+  .node-card-list .node-card{grid-template-columns:minmax(0,1fr) max-content minmax(145px,.7fr) auto;column-gap:12px}
+  .node-card-list .node-card-metrics{gap:8px}
+  .node-card-list .node-card-metrics>div{padding-left:8px}
+  .node-card-list .node-card-actions{gap:5px}
+  .node-card-list .node-card-actions .button{padding:6px 8px;font-size:11px;white-space:nowrap}
+  .node-card-list .node-more{min-width:42px}
+}
+@media(max-width:800px){
+  .node-card-list .node-card{grid-template-columns:minmax(0,1fr) max-content;grid-template-areas:"identity status" "context context" "metrics metrics" "actions actions";gap:12px;align-items:center;padding:14px}
+  .node-card-list .node-card-metrics{gap:16px}
+  .node-card-list .node-card-actions{gap:7px}
+}
+</style>
